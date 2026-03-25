@@ -4,7 +4,7 @@ from datetime import datetime, time  # time adalah tipe datetime.time
 import time as mod_time  # alias untuk modul time
 from dateutil.relativedelta import relativedelta
 from utils import (
-    authenticate_user1, save_internship_data, create_excel_sheet, load_data_cached, load_data_for_login, update_data_duplikat, delete_internship_data,
+    authenticate_user1, save_internship_data, create_excel_sheet, load_data_cached, get_worksheet, load_data_for_login, update_data_duplikat, delete_internship_data,
     load_data, convert_tanggal, append_to_sheet, validasi_data, hitung_umut, update_internship_data, parse_tanggal_ke_string, refresh_data_in_session, parse_time, hapus_data_by_periode
 )
 from config import SPREADSHEET_ID, DEPARTEMEN, APP_CONFIG, MESSAGES, departemen_list, jenissekolah_list, periode_list, nama_kolom_data_absen
@@ -2500,64 +2500,76 @@ def halaman_Rekapitulasi_Presensi():
                                     st.info(f"Memproses update {total_terbayar} data ke Google Sheets...")
                                     
                                     try:
-                                        # Buka koneksi ke Google Sheets
-                                        scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-                                        creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
-                                        client = gspread.authorize(creds)
-                                        spreadsheet = client.open_by_key(SPREADSHEET_ID)
-                                        worksheet_presensi = spreadsheet.worksheet("data_presensi")
+                                        # Gunakan fungsi dari utils.py
+                                        worksheet_presensi = get_worksheet("data_presensi")
+                                        if not worksheet_presensi:
+                                            st.error("❌ Gagal mengakses sheet data_presensi.")
+                                            return
                                         
                                         # Ambil semua data
                                         all_values = worksheet_presensi.get_all_values()
                                         if len(all_values) == 0:
-                                            st.warning("Sheet data_presensi kosong.")
+                                            st.warning("⚠️ Sheet data_presensi kosong.")
                                             return
                                         
                                         headers = all_values[0]
                                         
-                                        # Cari indeks kolom
-                                        try:
-                                            id_col_idx = headers.index('ID_Magang')
-                                            tgl_col_idx = headers.index('Tanggal')
-                                            status_col_idx = headers.index('Status Terbayar')
-                                        except ValueError as e:
-                                            st.error(f"Kolom wajib tidak ditemukan: {e}")
-                                            return
+                                        # Cari indeks kolom yang diperlukan
+                                        required_columns = ['ID_Magang', 'Tanggal', 'Status Terbayar']
+                                        column_indices = {}
+                                        
+                                        for col in required_columns:
+                                            try:
+                                                column_indices[col] = headers.index(col)
+                                            except ValueError:
+                                                st.error(f"❌ Kolom '{col}' tidak ditemukan di sheet data_presensi.")
+                                                return
+                                        
+                                        # Optional columns for validation
+                                        scan_masuk_idx = headers.index('Scan Masuk') if 'Scan Masuk' in headers else None
+                                        scan_keluar_idx = headers.index('Scan Keluar') if 'Scan Keluar' in headers else None
                                         
                                         # Buat lookup set untuk data yang memenuhi kriteria (ID + Tanggal)
                                         lookup_set = set()
                                         for _, row in df_terbayar.iterrows():
-                                            id_m = str(row['ID_Magang'])
+                                            id_m = str(row['ID_Magang']).strip()
                                             tgl_full = row['Tanggal_full']  # Format DD/MM/YYYY
                                             lookup_set.add((id_m, tgl_full))
                                         
-                                        # Konversi tanggal awal/akhir
+                                        # Konversi tanggal awal/akhir untuk validasi tambahan (opsional)
                                         tgl_awal_dt = pd.Timestamp(tgl_awal)
                                         tgl_akhir_dt = pd.Timestamp(tgl_akhir)
                                         
+                                        # Siapkan updates dalam format batch
                                         updates = []
                                         updated_count = 0
                                         skipped_count = 0
+                                        not_found_count = 0
                                         
-                                        # Loop baris data di sheet
+                                        # Loop melalui baris data di sheet (mulai dari baris 2 karena baris 1 adalah header)
                                         for i, row in enumerate(all_values[1:], start=2):
-                                            if len(row) <= max(id_col_idx, tgl_col_idx):
+                                            if len(row) <= max(column_indices.values()):
                                                 continue
                                             
-                                            id_m = str(row[id_col_idx]).strip()
-                                            tgl_str = row[tgl_col_idx].strip()
+                                            id_m = str(row[column_indices['ID_Magang']]).strip()
+                                            tgl_str = row[column_indices['Tanggal']].strip()
                                             
                                             # Cek apakah kombinasi ID + Tanggal ada di lookup_set
                                             if (id_m, tgl_str) in lookup_set:
-                                                # Cek juga scan masuk dan keluar (untuk jaga-jaga)
-                                                scan_masuk = row[headers.index('Scan Masuk')] if 'Scan Masuk' in headers else ''
-                                                scan_keluar = row[headers.index('Scan Keluar')] if 'Scan Keluar' in headers else ''
+                                                # Validasi scan masuk dan keluar (opsional, untuk memastikan data valid)
+                                                scan_masuk_valid = True
+                                                scan_keluar_valid = True
                                                 
-                                                scan_masuk_valid = scan_masuk and str(scan_masuk).strip() != ''
-                                                scan_keluar_valid = scan_keluar and str(scan_keluar).strip() != ''
+                                                if scan_masuk_idx is not None and scan_keluar_idx is not None:
+                                                    scan_masuk = row[scan_masuk_idx] if len(row) > scan_masuk_idx else ''
+                                                    scan_keluar = row[scan_keluar_idx] if len(row) > scan_keluar_idx else ''
+                                                    
+                                                    scan_masuk_valid = scan_masuk and str(scan_masuk).strip() != ''
+                                                    scan_keluar_valid = scan_keluar and str(scan_keluar).strip() != ''
                                                 
                                                 if scan_masuk_valid and scan_keluar_valid:
-                                                    col_letter = gspread.utils.rowcol_to_a1(1, status_col_idx + 1)[0]
+                                                    # Update status terbayar
+                                                    col_letter = gspread.utils.rowcol_to_a1(1, column_indices['Status Terbayar'] + 1)[0]
                                                     cell_range = f"{col_letter}{i}"
                                                     updates.append({
                                                         'range': cell_range,
@@ -2566,24 +2578,37 @@ def halaman_Rekapitulasi_Presensi():
                                                     updated_count += 1
                                                 else:
                                                     skipped_count += 1
+                                                    st.debug(f"⏭️ Data dilewati - ID: {id_m}, Tanggal: {tgl_str} (scan tidak lengkap)")
                                         
                                         if updates:
-                                            # Batch update ke Google Sheets
-                                            worksheet_presensi.batch_update(updates)
+                                            # Lakukan batch update ke Google Sheets
+                                            with st.spinner(f"🔄 Mengupdate {len(updates)} data..."):
+                                                worksheet_presensi.batch_update(updates)
+                                            
                                             st.success(f"✅ Berhasil mengupdate {updated_count} baris presensi di departemen {dept}.")
                                             
                                             if skipped_count > 0:
                                                 st.info(f"⏭️ {skipped_count} data dilewati karena scan kosong (validasi ulang).")
                                             
-                                            # Refresh data
-                                            refresh_data_in_session()
-                                            st.rerun()
-                                        else:
-                                            st.warning("Tidak ada baris presensi yang cocok dengan kriteria.")
+                                            if updated_count < total_terbayar:
+                                                st.warning(f"⚠️ Hanya {updated_count} dari {total_terbayar} data yang berhasil diupdate. "
+                                                        f"{skipped_count} data tidak valid, {total_terbayar - updated_count - skipped_count} data tidak ditemukan.")
                                             
+                                            # Refresh data di session state
+                                            if refresh_data_in_session():
+                                                st.success("📊 Data berhasil direfresh!")
+                                                st.rerun()
+                                            else:
+                                                st.warning("⚠️ Data berhasil diupdate, tapi gagal refresh cache. Silakan refresh manual.")
+                                        else:
+                                            st.warning("⚠️ Tidak ada baris presensi yang cocok dengan kriteria atau semua data sudah terbayar.")
+                                            
+                                    except gspread.exceptions.APIError as e:
+                                        st.error(f"❌ Error API Google Sheets: {str(e)}")
+                                        st.info("💡 Coba refresh halaman dan ulangi beberapa saat lagi.")
                                     except Exception as e:
-                                        st.error(f"Terjadi error: {e}")
-
+                                        st.error(f"❌ Terjadi error: {str(e)}")
+                                        st.exception(e)  # Untuk debugging, hapus di production
         # ---------- KALKULATOR WAKTU (TAMBAHAN) ----------
     with st.container(border=True):
         st.markdown("<b>Kalkulator Waktu</b>", unsafe_allow_html=True)
