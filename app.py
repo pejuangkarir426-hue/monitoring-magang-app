@@ -4,7 +4,7 @@ from datetime import datetime, time  # time adalah tipe datetime.time
 import time as mod_time  # alias untuk modul time
 from dateutil.relativedelta import relativedelta
 from utils import (
-    authenticate_user1, save_internship_data, create_excel_sheet, load_data_cached, get_worksheet, load_data_for_login, update_data_duplikat, delete_internship_data,
+    authenticate_user1, save_internship_data, create_excel_sheet, load_data_cached, get_worksheet,load_data_for_login, update_data_duplikat, delete_internship_data,
     load_data, convert_tanggal, append_to_sheet, validasi_data, hitung_umut, update_internship_data, parse_tanggal_ke_string, refresh_data_in_session, parse_time, hapus_data_by_periode
 )
 from config import SPREADSHEET_ID, DEPARTEMEN, APP_CONFIG, MESSAGES, departemen_list, jenissekolah_list, periode_list, nama_kolom_data_absen
@@ -2407,7 +2407,7 @@ def halaman_Rekapitulasi_Presensi():
                     # ---------- TANDAI TERBAYAR (VERSI DENGAN FILTER SCAN TIDAK KOSONG) ----------
                     with clm3:
                         with st.popover(f"✅ Tandai {dept} Terbayar"):
-                            # Identifikasi data dengan UMUT > 0 DAN scan tidak kosong
+                            # Identifikasi data dengan UMUT > 0
                             data_terbayar = []
                             
                             for _, row in df_tab.iterrows():
@@ -2417,8 +2417,7 @@ def halaman_Rekapitulasi_Presensi():
                                 for tgl in kolom_tanggal:
                                     umut = row[tgl]
                                     
-                                    # Kita perlu cek data scan untuk tanggal ini dari df_presensi_filter
-                                    # Cari data presensi untuk ID dan tanggal ini
+                                    # Cek data presensi untuk tanggal ini
                                     tgl_int = int(tgl)
                                     tgl_filter = date_range[date_range.day == tgl_int]
                                     
@@ -2431,71 +2430,77 @@ def halaman_Rekapitulasi_Presensi():
                                             (df_presensi_filter['Tanggal_dt'].dt.date == tgl_target.date())
                                         ]
                                         
-                                        if not data_scan.empty:
-                                            row_scan = data_scan.iloc[0]
-                                            scan_masuk = row_scan.get('Scan Masuk', '')
-                                            scan_keluar = row_scan.get('Scan Keluar', '')
-                                            
-                                            # Cek kondisi: UMUT > 0 DAN scan masuk tidak kosong DAN scan keluar tidak kosong
-                                            scan_masuk_valid = not pd.isna(scan_masuk) and str(scan_masuk).strip() != ''
-                                            scan_keluar_valid = not pd.isna(scan_keluar) and str(scan_keluar).strip() != ''
-                                            
-                                            if umut > 0 and scan_masuk_valid and scan_keluar_valid:
-                                                data_terbayar.append({
-                                                    'ID_Magang': id_magang,
-                                                    'Tanggal': tgl,
-                                                    'Tanggal_full': tgl_target.strftime('%d/%m/%Y'),
-                                                    'UMUT': umut,
-                                                    'Scan Masuk': scan_masuk,
-                                                    'Scan Keluar': scan_keluar
-                                                })
-                            
-                            df_terbayar = pd.DataFrame(data_terbayar)
-                            total_terbayar = len(df_terbayar)
-                            
-                            # Hitung total data yang memenuhi syarat
-                            total_umut_positif = 0
-                            total_scan_kosong = 0
-                            
-                            for _, row in df_tab.iterrows():
-                                id_magang = row['ID_Magang']
-                                for tgl in kolom_tanggal:
-                                    umut = row[tgl]
-                                    if umut > 0:
-                                        total_umut_positif += 1
-                                        
-                                        # Cek apakah scan-nya kosong
-                                        tgl_int = int(tgl)
-                                        tgl_filter = date_range[date_range.day == tgl_int]
-                                        
-                                        if len(tgl_filter) > 0:
-                                            tgl_target = tgl_filter[0]
-                                            data_scan = df_presensi_filter[
-                                                (df_presensi_filter['ID_Magang'] == id_magang) & 
-                                                (df_presensi_filter['Tanggal_dt'].dt.date == tgl_target.date())
-                                            ]
+                                        # Jika UMUT > 0, tandai sebagai terbayar TANPA memeriksa scan
+                                        if umut > 0:
+                                            # Ambil data scan jika ada (untuk informasi saja)
+                                            scan_masuk = ''
+                                            scan_keluar = ''
+                                            scan_masuk_valid = False
+                                            scan_keluar_valid = False
                                             
                                             if not data_scan.empty:
                                                 row_scan = data_scan.iloc[0]
                                                 scan_masuk = row_scan.get('Scan Masuk', '')
                                                 scan_keluar = row_scan.get('Scan Keluar', '')
-                                                
                                                 scan_masuk_valid = not pd.isna(scan_masuk) and str(scan_masuk).strip() != ''
                                                 scan_keluar_valid = not pd.isna(scan_keluar) and str(scan_keluar).strip() != ''
-                                                
-                                                if not (scan_masuk_valid and scan_keluar_valid):
-                                                    total_scan_kosong += 1
+                                            
+                                            data_terbayar.append({
+                                                'ID_Magang': id_magang,
+                                                'Tanggal': tgl,
+                                                'Tanggal_full': tgl_target.strftime('%d/%m/%Y'),
+                                                'UMUT': umut,
+                                                'Scan Masuk': scan_masuk,
+                                                'Scan Keluar': scan_keluar,
+                                                'Scan_Masuk_Valid': scan_masuk_valid,
+                                                'Scan_Keluar_Valid': scan_keluar_valid
+                                            })
                             
-                            st.warning(
+                            df_terbayar = pd.DataFrame(data_terbayar)
+                            total_terbayar = len(df_terbayar)
+                            
+                            # Hitung statistik untuk ditampilkan
+                            total_umut_positif = 0
+                            total_scan_lengkap = 0
+                            total_scan_hanya_masuk = 0
+                            total_scan_hanya_keluar = 0
+                            total_scan_kosong = 0
+                            
+                            for _, row in df_terbayar.iterrows():
+                                total_umut_positif += 1
+                                
+                                scan_masuk_valid = row.get('Scan_Masuk_Valid', False)
+                                scan_keluar_valid = row.get('Scan_Keluar_Valid', False)
+                                
+                                if scan_masuk_valid and scan_keluar_valid:
+                                    total_scan_lengkap += 1
+                                elif scan_masuk_valid and not scan_keluar_valid:
+                                    total_scan_hanya_masuk += 1
+                                elif not scan_masuk_valid and scan_keluar_valid:
+                                    total_scan_hanya_keluar += 1
+                                else:
+                                    total_scan_kosong += 1
+                            
+                            # Tampilkan peringatan dengan detail
+                            warning_message = (
                                 f"Anda akan menandai presensi mahasiswa **{dept}** pada periode "
                                 f"{tgl_awal.strftime('%d/%m/%Y')} - {tgl_akhir.strftime('%d/%m/%Y')} "
                                 f"sebagai **terbayar**.\n\n"
+                                f"**Detail data yang akan ditandai:**\n"
+                                f"• Total data dengan UMUT > 0: {total_umut_positif} data\n"
+                                f"• Data dengan scan lengkap: {total_scan_lengkap} data\n"
+                                f"• Data dengan scan hanya masuk: {total_scan_hanya_masuk} data\n"
+                                f"• Data dengan scan hanya keluar: {total_scan_hanya_keluar} data\n"
+                                f"• Data dengan scan kosong: {total_scan_kosong} data\n\n"
+                                f"⚠️ **Peringatan:** Data akan ditandai terbayar MESKIPUN scan tidak lengkap.\n"
                                 f"Tindakan ini tidak dapat dibatalkan."
                             )
                             
+                            st.warning(warning_message)
+                            
                             if st.button("Ya, tandai sekarang", key=f"confirm_bayar_{dept}"):
                                 if total_terbayar == 0:
-                                    st.warning("⚠️ Tidak ada data yang memenuhi kriteria untuk ditandai.")
+                                    st.warning("⚠️ Tidak ada data dengan UMUT > 0 pada periode ini.")
                                 else:
                                     st.info(f"Memproses update {total_terbayar} data ke Google Sheets...")
                                     
@@ -2525,28 +2530,19 @@ def halaman_Rekapitulasi_Presensi():
                                                 st.error(f"❌ Kolom '{col}' tidak ditemukan di sheet data_presensi.")
                                                 return
                                         
-                                        # Optional columns for validation
-                                        scan_masuk_idx = headers.index('Scan Masuk') if 'Scan Masuk' in headers else None
-                                        scan_keluar_idx = headers.index('Scan Keluar') if 'Scan Keluar' in headers else None
-                                        
-                                        # Buat lookup set untuk data yang memenuhi kriteria (ID + Tanggal)
+                                        # Buat lookup set untuk data yang akan ditandai (ID + Tanggal)
                                         lookup_set = set()
                                         for _, row in df_terbayar.iterrows():
                                             id_m = str(row['ID_Magang']).strip()
                                             tgl_full = row['Tanggal_full']  # Format DD/MM/YYYY
                                             lookup_set.add((id_m, tgl_full))
                                         
-                                        # Konversi tanggal awal/akhir untuk validasi tambahan (opsional)
-                                        tgl_awal_dt = pd.Timestamp(tgl_awal)
-                                        tgl_akhir_dt = pd.Timestamp(tgl_akhir)
-                                        
                                         # Siapkan updates dalam format batch
                                         updates = []
                                         updated_count = 0
-                                        skipped_count = 0
                                         not_found_count = 0
                                         
-                                        # Loop melalui baris data di sheet (mulai dari baris 2 karena baris 1 adalah header)
+                                        # Loop melalui baris data di sheet
                                         for i, row in enumerate(all_values[1:], start=2):
                                             if len(row) <= max(column_indices.values()):
                                                 continue
@@ -2556,43 +2552,39 @@ def halaman_Rekapitulasi_Presensi():
                                             
                                             # Cek apakah kombinasi ID + Tanggal ada di lookup_set
                                             if (id_m, tgl_str) in lookup_set:
-                                                # Validasi scan masuk dan keluar (opsional, untuk memastikan data valid)
-                                                scan_masuk_valid = True
-                                                scan_keluar_valid = True
-                                                
-                                                if scan_masuk_idx is not None and scan_keluar_idx is not None:
-                                                    scan_masuk = row[scan_masuk_idx] if len(row) > scan_masuk_idx else ''
-                                                    scan_keluar = row[scan_keluar_idx] if len(row) > scan_keluar_idx else ''
-                                                    
-                                                    scan_masuk_valid = scan_masuk and str(scan_masuk).strip() != ''
-                                                    scan_keluar_valid = scan_keluar and str(scan_keluar).strip() != ''
-                                                
-                                                if scan_masuk_valid and scan_keluar_valid:
-                                                    # Update status terbayar
-                                                    col_letter = gspread.utils.rowcol_to_a1(1, column_indices['Status Terbayar'] + 1)[0]
-                                                    cell_range = f"{col_letter}{i}"
-                                                    updates.append({
-                                                        'range': cell_range,
-                                                        'values': [['terbayar']]
-                                                    })
-                                                    updated_count += 1
-                                                else:
-                                                    skipped_count += 1
-                                                    st.debug(f"⏭️ Data dilewati - ID: {id_m}, Tanggal: {tgl_str} (scan tidak lengkap)")
+                                                # HAPUS VALIDASI SCAN - LANGSUNG UPDATE TANPA MEMERIKSA SCAN
+                                                col_letter = gspread.utils.rowcol_to_a1(1, column_indices['Status Terbayar'] + 1)[0]
+                                                cell_range = f"{col_letter}{i}"
+                                                updates.append({
+                                                    'range': cell_range,
+                                                    'values': [['terbayar']]
+                                                })
+                                                updated_count += 1
                                         
                                         if updates:
                                             # Lakukan batch update ke Google Sheets
                                             with st.spinner(f"🔄 Mengupdate {len(updates)} data..."):
-                                                worksheet_presensi.batch_update(updates)
+                                                # Split updates menjadi batch yang lebih kecil jika perlu (maks 100 per batch)
+                                                batch_size = 100
+                                                for j in range(0, len(updates), batch_size):
+                                                    batch = updates[j:j+batch_size]
+                                                    worksheet_presensi.batch_update(batch)
                                             
-                                            st.success(f"✅ Berhasil mengupdate {updated_count} baris presensi di departemen {dept}.")
+                                            # Tampilkan ringkasan hasil
+                                            st.success(f"✅ Berhasil menandai {updated_count} baris presensi sebagai TERBAYAR di departemen {dept}.")
                                             
-                                            if skipped_count > 0:
-                                                st.info(f"⏭️ {skipped_count} data dilewati karena scan kosong (validasi ulang).")
+                                            # Tampilkan detail statistik scan
+                                            st.info(
+                                                f"📊 **Rincian data yang ditandai:**\n\n"
+                                                f"• Scan lengkap: {total_scan_lengkap} data\n"
+                                                f"• Scan hanya masuk: {total_scan_hanya_masuk} data\n"
+                                                f"• Scan hanya keluar: {total_scan_hanya_keluar} data\n"
+                                                f"• Scan kosong: {total_scan_kosong} data"
+                                            )
                                             
                                             if updated_count < total_terbayar:
-                                                st.warning(f"⚠️ Hanya {updated_count} dari {total_terbayar} data yang berhasil diupdate. "
-                                                        f"{skipped_count} data tidak valid, {total_terbayar - updated_count - skipped_count} data tidak ditemukan.")
+                                                not_found = total_terbayar - updated_count
+                                                st.warning(f"⚠️ {not_found} data tidak ditemukan di database presensi.")
                                             
                                             # Refresh data di session state
                                             if refresh_data_in_session():
@@ -2609,6 +2601,7 @@ def halaman_Rekapitulasi_Presensi():
                                     except Exception as e:
                                         st.error(f"❌ Terjadi error: {str(e)}")
                                         st.exception(e)  # Untuk debugging, hapus di production
+
         # ---------- KALKULATOR WAKTU (TAMBAHAN) ----------
     with st.container(border=True):
         st.markdown("<b>Kalkulator Waktu</b>", unsafe_allow_html=True)
@@ -2795,7 +2788,31 @@ def halaman_Rekapitulasi_Presensi():
                         return 'background-color: #ccffcc'  # Hijau muda untuk sudah terbayar
                     return ''
                 
-                st.subheader("📋 Detail Data Presensi")
+                if 'data_magang' in st.session_state:
+                    df_magang = st.session_state.data_magang.copy()
+                    # Buat mapping ID_Magang ke Nama
+                    mapping_nama = dict(zip(df_magang['ID_Magang'].astype(str), df_magang['Nama']))
+                    mapping_dept = dict(zip(df_magang['ID_Magang'].astype(str), df_magang['Bagian/Dept']))
+                    mapping_subdept = dict(zip(df_magang['ID_Magang'].astype(str), df_magang['Sub Dept']))
+                    
+                    # Tambahkan kolom Nama ke df_show jika belum ada
+                    if 'Nama' not in df_show.columns:
+                        df_show['Nama'] = df_show['ID_Magang'].astype(str).map(mapping_nama).fillna('-')
+                    
+                    # Reorder columns untuk menampilkan Nama di awal
+                    cols = df_show.columns.tolist()
+                    if 'Nama' in cols:
+                        # Pindahkan ID_Magang dan Nama ke depan
+                        cols.insert(0, cols.pop(cols.index('Nama')))
+                        cols.insert(0, cols.pop(cols.index('ID_Magang')))
+                        df_show = df_show[cols]
+                else:
+                    st.warning("⚠️ Data database magang tidak ditemukan. Nama mahasiswa tidak dapat ditampilkan.")
+                    mapping_nama = {}
+                    mapping_dept = {}
+                    mapping_subdept = {}
+
+                # Tampilkan dataframe dengan styling
                 st.dataframe(
                     df_show.style.applymap(color_status, subset=['Status Terbayar'] if 'Status Terbayar' in df_show.columns else []),
                     use_container_width=True,
