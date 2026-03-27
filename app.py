@@ -2486,14 +2486,8 @@ def halaman_Rekapitulasi_Presensi():
                                 f"Anda akan menandai presensi mahasiswa **{dept}** pada periode "
                                 f"{tgl_awal.strftime('%d/%m/%Y')} - {tgl_akhir.strftime('%d/%m/%Y')} "
                                 f"sebagai **terbayar**.\n\n"
-                                f"**Detail data yang akan ditandai:**\n"
-                                f"• Total data dengan UMUT > 0: {total_umut_positif} data\n"
-                                f"• Data dengan scan lengkap: {total_scan_lengkap} data\n"
-                                f"• Data dengan scan hanya masuk: {total_scan_hanya_masuk} data\n"
-                                f"• Data dengan scan hanya keluar: {total_scan_hanya_keluar} data\n"
-                                f"• Data dengan scan kosong: {total_scan_kosong} data\n\n"
                                 f"⚠️ **Peringatan:** Data akan ditandai terbayar MESKIPUN scan tidak lengkap.\n"
-                                f"Tindakan ini tidak dapat dibatalkan."
+                                f"Tindakan ini tidak dapat dibatalkan. Harap perbaiki data presensi jika ada CICO"
                             )
                             
                             st.warning(warning_message)
