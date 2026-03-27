@@ -1613,7 +1613,8 @@ def halaman_Magang_Analytic():
                     data=csv,
                     file_name=f"data_magang_filtered_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv",
                     mime="text/csv",
-                    use_container_width=True
+                    use_container_width=True,
+                    key="download_data_magang_csv"
                 )
         else:
             st.warning("⚠️ Tidak ada data yang sesuai dengan filter")
@@ -2359,7 +2360,7 @@ def halaman_Rekapitulasi_Presensi():
 
             periode_str = f"Periode: {tgl_awal.strftime('%d/%m/%Y')} - {tgl_akhir.strftime('%d/%m/%Y')}"
 
-            for tab, dept in zip(tabs, dept_list):
+            for i, (tab, dept) in enumerate(zip(tabs, dept_list)):
 
                 with tab:
 
@@ -2382,26 +2383,23 @@ def halaman_Rekapitulasi_Presensi():
                         )
 
                     # ---------- DOWNLOAD ----------
-                    with clm1:
-
-                        output = BytesIO()
-
-                        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-
-                            judul = f"Rekap UMUT - Departemen {dept}\n{periode_str}"
-
-                            sheet_name = dept[:31]
-
-                            create_excel_sheet(writer, df_tab, sheet_name, judul)
-
-                        output.seek(0)
-
-                        st.download_button(
-                            label=f"📥 Download Excel {dept}",
-                            data=output,
-                            file_name=f"rekap_umut_{dept}_{tgl_awal.strftime('%Y%m%d')}_{tgl_akhir.strftime('%Y%m%d')}.xlsx",
-                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                        )
+                    st.divider()
+                    output_all = BytesIO()
+                    with pd.ExcelWriter(output_all, engine='xlsxwriter') as writer:
+                        for dept_dl in dept_list:
+                            df_tab_dl = df_hasil_with_dept[df_hasil_with_dept['Bagian/Dept'] == dept_dl].drop(columns=['Bagian/Dept'])
+                            judul = f"Rekap UMUT - Departemen {dept_dl}\n{periode_str}"
+                            sheet_name = dept_dl[:31]
+                            create_excel_sheet(writer, df_tab_dl, sheet_name, judul)
+                    output_all.seek(0)
+                    st.download_button(
+                        label="📥 Download Excel Semua Departemen",
+                        data = output_all,
+                        file_name = f"rekap_umut_semua_{tgl_awal.strftime('%Y%m%d')}_{tgl_akhir.strftime('%Y%m%d')}.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        use_container_width=True,
+                        key=f"download_rekap_umut_{i}_{dept}"
+                    )
 
                     # ---------- TANDAI TERBAYAR ----------
                     # ---------- TANDAI TERBAYAR (VERSI DENGAN FILTER SCAN TIDAK KOSONG) ----------
@@ -2492,7 +2490,7 @@ def halaman_Rekapitulasi_Presensi():
                             
                             st.warning(warning_message)
                             
-                            if st.button("Ya, tandai sekarang", key=f"confirm_bayar_{dept}"):
+                            if st.button("Ya, tandai sekarang", key=f"confirm_bayar_{i}_{dept}"):
                                 if total_terbayar == 0:
                                     st.warning("⚠️ Tidak ada data dengan UMUT > 0 pada periode ini.")
                                 else:
