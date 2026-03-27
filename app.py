@@ -2818,23 +2818,43 @@ def halaman_Rekapitulasi_Presensi():
                 # ============================================
                 st.divider()
                 st.subheader("📊 Rekapitulasi per Mahasiswa")
-                
+
+                # Ambil data nama dari database_magang berdasarkan ID_Magang
+                if 'data_magang' in st.session_state and not st.session_state.data_magang.empty:
+                    df_magang = st.session_state.data_magang.copy()
+                    
+                    # Buat dictionary mapping ID_Magang ke Nama
+                    mapping_nama = dict(zip(df_magang['ID_Magang'].astype(str), df_magang['Nama']))
+                    mapping_dept = dict(zip(df_magang['ID_Magang'].astype(str), df_magang['Bagian/Dept']))
+                    mapping_subdept = dict(zip(df_magang['ID_Magang'].astype(str), df_magang['Sub Dept']))
+                else:
+                    st.warning("⚠️ Data database magang tidak ditemukan")
+                    mapping_nama = {}
+                    mapping_dept = {}
+                    mapping_subdept = {}
+
                 # Hitung statistik per mahasiswa
                 rekap_mahasiswa = []
                 for id_mhs, group in df_display.groupby('ID_Magang'):
-                    nama = group['Nama'].iloc[0] if 'Nama' in group.columns else '-'
-                    dept = group['Bagian/Dept'].iloc[0] if 'Bagian/Dept' in group.columns else '-'
-                    subdept = group['Sub Dept'].iloc[0] if 'Sub Dept' in group.columns else '-'
+                    id_mhs_str = str(id_mhs)
+                    
+                    # Ambil nama dari mapping (database magang)
+                    nama = mapping_nama.get(id_mhs_str, '-')
+                    dept = mapping_dept.get(id_mhs_str, '-')
+                    subdept = mapping_subdept.get(id_mhs_str, '-')
                     
                     total_hadir = len(group)
-                    total_terbayar = len(group[group['Status Terbayar'].str.lower() == 'terbayar'])
+                    
+                    # Hitung status terbayar
+                    if 'Status Terbayar' in group.columns:
+                        total_terbayar = len(group[group['Status Terbayar'].astype(str).str.lower() == 'terbayar'])
+                    else:
+                        total_terbayar = 0
+                    
                     total_belum = total_hadir - total_terbayar
                     
-                    # Hitung total UMUT jika ada (opsional, bisa dikembangkan)
-                    # total_umut = group['UMUT'].sum() if 'UMUT' in group.columns else 0
-                    
                     rekap_mahasiswa.append({
-                        'ID_Magang': str(id_mhs),
+                        'ID_Magang': id_mhs_str,
                         'Nama': nama,
                         'Departemen': dept,
                         'Sub Dept': subdept,
@@ -2843,10 +2863,19 @@ def halaman_Rekapitulasi_Presensi():
                         'Belum Terbayar': total_belum,
                         'Persentase Terbayar': f"{(total_terbayar/total_hadir*100):.1f}%" if total_hadir > 0 else "0%"
                     })
-                
+
                 df_rekap = pd.DataFrame(rekap_mahasiswa)
+
+                # Tampilkan dataframe
                 st.dataframe(df_rekap, use_container_width=True, height=300)
-                
+
+                # Debug: Cek ID yang tidak ditemukan
+                missing_ids = [id_mhs_str for id_mhs_str in df_display['ID_Magang'].astype(str).unique() if id_mhs_str not in mapping_nama]
+                if missing_ids:
+                    with st.expander("🔍 ID Magang yang tidak ditemukan di database"):
+                        st.write(f"Jumlah ID tidak ditemukan: {len(missing_ids)}")
+                        st.write("Contoh ID:", missing_ids[:10])
+                        
                 # ============================================
                 # VISUALISASI
                 # ============================================
