@@ -17,9 +17,9 @@ from google.oauth2.service_account import Credentials
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 
-# =========================
+# ==========================
 # KONFIGURASI HALAMAN
-# =========================
+# ==========================
 st.set_page_config(
     page_title=APP_CONFIG['nama_aplikasi'],
     page_icon="🎓",
