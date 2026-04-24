@@ -162,3 +162,15 @@ BULAN_INDONESIA = {
     'januari': 1, 'februari': 2, 'maret': 3, 'april': 4, 'mei': 5, 'juni': 6,
     'juli': 7, 'agustus': 8, 'september': 9, 'oktober': 10, 'november': 11, 'desember': 12
 }
+
+
+# # ---------- KONFIGURASI APP ADMIN MAGANG ----------
+# SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1i9hc5NP6QdoACcBEzKfDMfVDO1nh3fznu8G2EM9euaE/edit?resourcekey=&gid=1242174805#gid=1242174805"
+# SHEET_PENDAFTARAN = "Data_Daftar_Anak_Magang"
+# SHEET_DITERIMA = "Data_Magang_Diterima"
+# SHEET_DITOLAK = "Data_Magang_Ditolak"
+# SHEET_KAPASITAS = "Kapasitas_Magang"
+
+# STATUS_MENUNGGU = "Menunggu Konfirmasi"
+# STATUS_APPROVED = "Approved"
+# STATUS_DITOLAK = "Ditolak"

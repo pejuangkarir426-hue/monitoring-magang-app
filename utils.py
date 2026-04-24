@@ -683,7 +683,7 @@ def simpan_data_valid(data_valid, db_data_presensi):
 
 def update_data_duplikat(data_duplikat, df_absen, db_data_presensi):
     """
-    Fungsi untuk meng-update data duplikat
+    Fungsi untuk meng-update data duplikat secara BATCH (sekaligus)
     """
     try:
         # Ambil indeks dari data yang akan diupdate
@@ -699,11 +699,13 @@ def update_data_duplikat(data_duplikat, df_absen, db_data_presensi):
         # Ambil data dari file upload berdasarkan indeks
         data_update = df_absen.iloc[indeks_update].to_dict('records')
         
-        st.info(f"📝 Memproses {len(data_update)} data untuk diupdate...")
+        st.info(f"📝 Memproses {len(data_update)} data untuk diupdate secara BATCH...")
         
         # ========================================
-        # 1. HAPUS DATA LAMA
+        # 1. KUMPULKAN SEMUA ID + TANGGAL YANG AKAN DIHAPUS
         # ========================================
+        hapus_list = []  # List of tuples (id_magang, tanggal_str)
+        
         for item in data_duplikat:
             id_magang = str(item['ID_Magang'])
             tanggal = item['Tanggal']
@@ -718,15 +720,29 @@ def update_data_duplikat(data_duplikat, df_absen, db_data_presensi):
                 tgl_parsed = parse_tanggal_ke_string(tanggal)
                 tanggal_str = tgl_parsed if tgl_parsed else str(tanggal)
             
-            # Hapus data lama dari sheets
-            try:
-                hapus_data_dari_sheets("data_presensi", id_magang, tanggal_str)
-                st.write(f"✅ Menghapus data lama: ID {id_magang}, Tanggal {tanggal_str}")
-            except Exception as e:
-                st.warning(f"⚠️ Gagal menghapus data lama untuk ID {id_magang} tgl {tanggal_str}: {e}")
+            hapus_list.append((id_magang, tanggal_str))
         
         # ========================================
-        # 2. SIAPKAN DATA BARU
+        # 2. HAPUS SEMUA DATA LAMA SEKALIGUS (BATCH DELETE)
+        # ========================================
+        try:
+            success_hapus, msg_hapus = hapus_banyak_data_dari_sheets(
+                "data_presensi", 
+                hapus_list
+            )
+            
+            if not success_hapus:
+                st.error(f"❌ Gagal menghapus data lama: {msg_hapus}")
+                return False
+            else:
+                st.success(f"✅ Berhasil menghapus {len(hapus_list)} data lama")
+                
+        except Exception as e:
+            st.error(f"❌ Error saat menghapus data lama: {str(e)}")
+            return False
+        
+        # ========================================
+        # 3. SIAPKAN DATA BARU (SAMA SEPERTI SEBELUMNYA)
         # ========================================
         col_order = list(db_data_presensi.columns)
         data_baru = []
@@ -756,7 +772,7 @@ def update_data_duplikat(data_duplikat, df_absen, db_data_presensi):
             data_baru.append(baris)
         
         # ========================================
-        # 3. SIMPAN DATA BARU
+        # 4. SIMPAN SEMUA DATA BARU SEKALIGUS
         # ========================================
         if data_baru:
             success = append_to_sheet("data_presensi", data_baru)
@@ -773,6 +789,153 @@ def update_data_duplikat(data_duplikat, df_absen, db_data_presensi):
     except Exception as e:
         st.error(f"❌ Gagal meng-update data: {str(e)}")
         return False
+
+
+def hapus_banyak_data_dari_sheets(sheet_name, hapus_list):
+    """
+    Menghapus banyak data sekaligus dari Google Sheets berdasarkan ID_Magang dan Tanggal
+    
+    Args:
+        sheet_name (str): Nama sheet
+        hapus_list (list): List of tuples [(id_magang1, tgl1), (id_magang2, tgl2), ...]
+    
+    Returns:
+        tuple: (success, message)
+    """
+    try:
+        worksheet = get_worksheet(sheet_name)
+        if not worksheet:
+            return False, "Gagal mendapatkan worksheet"
+        
+        # Ambil semua data
+        all_values = worksheet.get_all_values()
+        
+        if not all_values or len(all_values) <= 1:
+            return False, "Sheet kosong atau hanya berisi header"
+        
+        header = all_values[0]
+        
+        # Cari indeks kolom
+        try:
+            idx_id = header.index('ID_Magang')
+            idx_tgl = header.index('Tanggal')
+        except ValueError as e:
+            return False, f"Kolom ID_Magang atau Tanggal tidak ditemukan: {e}"
+        
+        # Buat set untuk lookup cepat
+        lookup_set = set()
+        for id_m, tgl in hapus_list:
+            # Normalisasi tanggal
+            tgl_normalized = tgl
+            # Coba berbagai format
+            try:
+                # Coba parse ke datetime lalu format ke YYYY-MM-DD
+                dt = pd.to_datetime(tgl)
+                tgl_normalized = dt.strftime('%Y-%m-%d')
+            except:
+                pass
+            
+            lookup_set.add((str(id_m).strip(), tgl_normalized))
+        
+        # Kumpulkan baris yang akan dihapus
+        baris_dihapus = []
+        
+        for i, row in enumerate(all_values[1:], start=2):  # mulai baris 2
+            if len(row) <= max(idx_id, idx_tgl):
+                continue
+                
+            row_id = str(row[idx_id]).strip()
+            row_tgl = str(row[idx_tgl]).strip()
+            
+            # Normalisasi tanggal dari sheet
+            row_tgl_normalized = row_tgl
+            try:
+                dt = pd.to_datetime(row_tgl, dayfirst=True)
+                row_tgl_normalized = dt.strftime('%Y-%m-%d')
+            except:
+                pass
+            
+            # Cek apakah ada di lookup_set
+            if (row_id, row_tgl_normalized) in lookup_set:
+                baris_dihapus.append(i)
+        
+        if not baris_dihapus:
+            return False, "Tidak ada data yang cocok untuk dihapus"
+        
+        # Hapus semua baris sekaligus (dari bawah ke atas)
+        for baris in sorted(baris_dihapus, reverse=True):
+            worksheet.delete_rows(baris)
+        
+        return True, f"Berhasil menghapus {len(baris_dihapus)} baris"
+        
+    except Exception as e:
+        return False, str(e)
+    
+def hapus_data_by_periode(sheet_name, tgl_awal, tgl_akhir):
+    """
+    Menghapus data presensi berdasarkan periode tanggal menggunakan BATCH UPDATE
+    """
+    try:
+        worksheet = get_worksheet(sheet_name)
+        if not worksheet:
+            return False, "Gagal mendapatkan worksheet", 0
+        
+        # Ambil semua data
+        all_values = worksheet.get_all_values()
+        
+        if not all_values or len(all_values) <= 1:
+            return False, "Sheet kosong atau hanya berisi header", 0
+        
+        header = all_values[0]
+        data_rows = all_values[1:]  # Data tanpa header
+        
+        # Cari indeks kolom Tanggal
+        try:
+            tgl_col_idx = header.index('Tanggal')
+        except ValueError:
+            return False, "Kolom Tanggal tidak ditemukan", 0
+        
+        # Konversi tanggal awal/akhir
+        tgl_awal_dt = pd.Timestamp(tgl_awal)
+        tgl_akhir_dt = pd.Timestamp(tgl_akhir)
+        
+        # Siapkan data baru (HANYA data yang TIDAK dihapus)
+        new_data = [header]  # Mulai dengan header
+        
+        for row in data_rows:
+            if len(row) <= tgl_col_idx:
+                new_data.append(row)
+                continue
+                
+            tgl_str = row[tgl_col_idx].strip()
+            
+            try:
+                tgl_dt = pd.to_datetime(tgl_str, format='%d/%m/%Y', errors='coerce')
+                
+                # Jika TIDAK dalam periode hapus, simpan
+                if pd.isna(tgl_dt) or not (tgl_awal_dt <= tgl_dt <= tgl_akhir_dt):
+                    new_data.append(row)
+            except:
+                new_data.append(row)
+        
+        jumlah_hapus = len(data_rows) - (len(new_data) - 1)  # -1 karena header
+        
+        if jumlah_hapus == 0:
+            return False, f"Tidak ada data pada periode {tgl_awal.strftime('%d/%m/%Y')} - {tgl_akhir.strftime('%d/%m/%Y')}", 0
+        
+        # ============================================
+        # BATCH UPDATE: KOSONGKAN SHEET DAN TULIS ULANG
+        # ============================================
+        # Clear seluruh sheet
+        worksheet.clear()
+        
+        # Tulis ulang semua data (header + data yang tidak dihapus)
+        worksheet.update('A1', new_data, value_input_option='USER_ENTERED')
+        
+        return True, f"Berhasil menghapus {jumlah_hapus} data", jumlah_hapus
+        
+    except Exception as e:
+        return False, str(e), 0
 
 # =========================
 # FUNGSI REKAPITULASI KEHADIRAN
@@ -807,11 +970,20 @@ def hitung_umut(row, break_start=None, break_end=None):
 
     if scan_masuk is None and scan_keluar is None:
         return 0, "tidak masuk"
+
+    # Cek terlambat dari kolom SEBELUM scan diganti
+    is_terlambat_manual = str(terlambat).strip() == '1'
+    batas_toleransi = jam_masuk + timedelta(minutes=5)
+    is_terlambat_scan = scan_masuk is not None and scan_masuk > batas_toleransi
+    is_terlambat = is_terlambat_manual or is_terlambat_scan
+
+    # Ganti scan kosong HANYA untuk keperluan hitung durasi
+    scan_masuk_hitung = scan_masuk if scan_masuk is not None else jam_masuk
+    scan_keluar_hitung = scan_keluar if scan_keluar is not None else jam_pulang
+
     if scan_masuk is None:
-        scan_masuk = jam_masuk
         keterangan.append("scan masuk kosong")
     if scan_keluar is None:
-        scan_keluar = jam_pulang
         keterangan.append("scan keluar kosong")
 
     def kurangi_istirahat(masuk, keluar):
@@ -824,12 +996,11 @@ def hitung_umut(row, break_start=None, break_end=None):
         durasi_irisan = irisan_selesai - irisan_mulai
         return (keluar - masuk) - durasi_irisan
 
-    durasi = kurangi_istirahat(scan_masuk, scan_keluar)
+    durasi = kurangi_istirahat(scan_masuk_hitung, scan_keluar_hitung)
     durasi_jam = durasi.total_seconds() / 3600.0
 
-    batas_toleransi = jam_masuk + timedelta(minutes=5)
-    if scan_masuk > batas_toleransi:
-        if str(terlambat).strip() == '1':
+    if is_terlambat:
+        if is_terlambat_manual:
             keterangan.append("terlambat (tanpa keterangan)")
         else:
             keterangan.append("izin terlambat")
@@ -838,8 +1009,8 @@ def hitung_umut(row, break_start=None, break_end=None):
         umut = 8000
         keterangan.append("durasi <4 jam")
     else:
-        if scan_masuk > batas_toleransi:
-            if str(terlambat).strip() == '1':
+        if is_terlambat:
+            if is_terlambat_manual:
                 umut = 8000
             else:
                 umut = 20000
@@ -847,7 +1018,7 @@ def hitung_umut(row, break_start=None, break_end=None):
             umut = 20000
 
         if durasi_jam >= 12:
-            if not (scan_masuk > batas_toleransi) or str(terlambat).strip() != '1':
+            if not is_terlambat_manual:
                 umut += 12000
                 keterangan.append("lembur")
 
