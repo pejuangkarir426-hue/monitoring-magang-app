@@ -1547,6 +1547,12 @@ def halaman_Magang_Analytic():
             # Konversi ID_Magang ke string jika ada
             if 'ID_Magang' in df_display.columns:
                 df_display['ID_Magang'] = df_display['ID_Magang'].astype(str)
+
+            if "Terlambat" in df_filtered.columns:
+                df_filtered["Terlambat"] = pd.to_numeric(
+                    df_filtered["Terlambat"],
+                    errors="coerce"
+                )
             
             # Tampilkan dataframe dengan styling
             st.dataframe(
